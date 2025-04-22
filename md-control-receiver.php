@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.1
+ * Version: 1.1.1
  * Author: Matthews Design
  */
 
@@ -16,7 +16,7 @@ register_activation_hook(__FILE__, function () {
         add_option($option_name, $api_key, '', false);
     }
 
-    // Store GitHub token for secure updater access
+    // Store GitHub token for secure updater access (only once, on install)
     if (!get_option('md_control_github_token')) {
         add_option('md_control_github_token', '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');
     }
