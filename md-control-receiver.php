@@ -8,40 +8,47 @@
 
 defined('ABSPATH') || exit;
 
-// Register plugin activation hook to generate the API key
-register_activation_hook(__FILE__, 'md_control_generate_api_key');
-
-function md_control_generate_api_key() {
+// Register plugin activation hook to generate the API key and store GitHub token
+register_activation_hook(__FILE__, function () {
     $option_name = 'md_control_api_key';
-
     if (!get_option($option_name)) {
         $api_key = bin2hex(random_bytes(16));
         add_option($option_name, $api_key, '', false);
     }
-}
+
+    // Store GitHub token for secure updater access
+    if (!get_option('md_control_github_token')) {
+        add_option('md_control_github_token', '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');
+    }
+});
 
 // Load REST API endpoints
 require_once plugin_dir_path(__FILE__) . 'includes/api/endpoints.php';
 
-// --- GitHub Updater for MD Control Receiver ---
+// Load admin UI for settings page
+if (is_admin()) {
+    require_once plugin_dir_path(__FILE__) . 'includes/admin/settings-page.php';
+}
+
+// GitHub Updater (WordPress-native)
 add_action('init', function () {
     if (!is_admin()) return;
 
-    new MD_Control_GitHub_Updater(__FILE__, [
+    new MD_GitHub_Updater(__FILE__, [
         'user'  => 'MatthewsDesign',
         'repo'  => 'md-control-receiver',
-        'token' => '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',
+        'token' => get_option('md_control_github_token'),
     ]);
 });
 
-class MD_Control_GitHub_Updater {
+class MD_GitHub_Updater {
     private $file, $slug, $user, $repo, $token;
 
     public function __construct($file, $args) {
-        $this->file = $file;
-        $this->slug = plugin_basename($file);
-        $this->user = $args['user'];
-        $this->repo = $args['repo'];
+        $this->file  = $file;
+        $this->slug  = plugin_basename($file);
+        $this->user  = $args['user'];
+        $this->repo  = $args['repo'];
         $this->token = $args['token'];
 
         add_filter('pre_set_site_transient_update_plugins', [$this, 'check_update']);
@@ -69,7 +76,7 @@ class MD_Control_GitHub_Updater {
 
         $plugin_data = get_plugin_data($this->file);
         $current = $plugin_data['Version'];
-        $remote = ltrim($release->tag_name, 'v');
+        $remote  = ltrim($release->tag_name, 'v');
 
         if (version_compare($remote, $current, '>')) {
             $transient->response[$this->slug] = (object)[
@@ -91,13 +98,15 @@ class MD_Control_GitHub_Updater {
         if (!$release) return $res;
 
         return (object)[
-            'name' => 'MD Control Receiver',
-            'slug' => $this->slug,
-            'version' => ltrim($release->tag_name, 'v'),
-            'author' => 'Matthews Design',
-            'homepage' => $release->html_url,
+            'name'        => 'MD Control Receiver',
+            'slug'        => $this->slug,
+            'version'     => ltrim($release->tag_name, 'v'),
+            'author'      => 'Matthews Design',
+            'homepage'    => $release->html_url,
             'download_link' => $release->zipball_url,
-            'sections' => ['description' => $release->body ?? ''],
+            'sections'    => [
+                'description' => $release->body ?? '',
+            ],
         ];
     }
 
@@ -105,9 +114,9 @@ class MD_Control_GitHub_Updater {
         global $wp_filesystem;
 
         $slug = dirname($this->slug);
-        $proper_destination = WP_PLUGIN_DIR . '/' . $slug;
-        $wp_filesystem->move($result['destination'], $proper_destination);
-        $result['destination'] = $proper_destination;
+        $destination = WP_PLUGIN_DIR . '/' . $slug;
+        $wp_filesystem->move($result['destination'], $destination);
+        $result['destination'] = $destination;
 
         return $result;
     }
