@@ -26,7 +26,7 @@ add_action('init', function () {
     new MD_GitHub_Updater(__FILE__, [
         'user'  => 'MatthewsDesign',
         'repo'  => 'md-control-receiver',
-        'token' => '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',
+        'token' => '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',
     ]);
 });
 
