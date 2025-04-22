@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.1.2
+ * Version: 1.1.3
  * Author: Matthews Design
  */
 
@@ -72,8 +72,7 @@ class MD_GitHub_Updater {
                 'slug'        => dirname($this->slug),
                 'plugin'      => $this->slug,
                 'new_version' => $remote,
-                'package' => "https://api.github.com/repos/{$this->user}/{$this->repo}/zipball/{$release->tag_name}?access_token={$this->token}",
-
+                'package' => "https://{$this->token}:x-oauth-basic@codeload.github.com/{$this->user}/{$this->repo}/legacy.zip/{$release->tag_name}",
                 'url'         => $release->html_url,
             ];
         }
