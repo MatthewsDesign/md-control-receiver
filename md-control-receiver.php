@@ -72,7 +72,7 @@ class MD_GitHub_Updater {
                 'slug'        => dirname($this->slug),
                 'plugin'      => $this->slug,
                 'new_version' => $remote,
-                'package'     => $release->zipball_url,
+                'package'     => "https://{$this->token}@api.github.com/repos/{$this->user}/{$this->repo}/zipball/{$release->tag_name}",
                 'url'         => $release->html_url,
             ];
         }
