@@ -2,42 +2,31 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.1.1
+ * Version: 1.1
  * Author: Matthews Design
  */
 
 defined('ABSPATH') || exit;
 
-// Register plugin activation hook to generate the API key and store GitHub token
-register_activation_hook(__FILE__, function () {
+register_activation_hook(__FILE__, 'md_control_generate_api_key');
+
+function md_control_generate_api_key() {
     $option_name = 'md_control_api_key';
     if (!get_option($option_name)) {
         $api_key = bin2hex(random_bytes(16));
         add_option($option_name, $api_key, '', false);
     }
-
-    // Store GitHub token for secure updater access (only once, on install)
-    if (!get_option('md_control_github_token')) {
-        add_option('md_control_github_token', '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');
-    }
-});
-
-// Load REST API endpoints
-require_once plugin_dir_path(__FILE__) . 'includes/api/endpoints.php';
-
-// Load admin UI for settings page
-if (is_admin()) {
-    require_once plugin_dir_path(__FILE__) . 'includes/admin/settings-page.php';
 }
 
-// GitHub Updater (WordPress-native)
+require_once plugin_dir_path(__FILE__) . 'includes/api/endpoints.php';
+
 add_action('init', function () {
     if (!is_admin()) return;
 
     new MD_GitHub_Updater(__FILE__, [
         'user'  => 'MatthewsDesign',
         'repo'  => 'md-control-receiver',
-        'token' => get_option('md_control_github_token'),
+        'token' => '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',
     ]);
 });
 
@@ -98,13 +87,13 @@ class MD_GitHub_Updater {
         if (!$release) return $res;
 
         return (object)[
-            'name'        => 'MD Control Receiver',
-            'slug'        => $this->slug,
-            'version'     => ltrim($release->tag_name, 'v'),
-            'author'      => 'Matthews Design',
-            'homepage'    => $release->html_url,
-            'download_link' => $release->zipball_url,
-            'sections'    => [
+            'name'           => 'MD Control Receiver',
+            'slug'           => $this->slug,
+            'version'        => ltrim($release->tag_name, 'v'),
+            'author'         => 'Matthews Design',
+            'homepage'       => $release->html_url,
+            'download_link'  => $release->zipball_url,
+            'sections'       => [
                 'description' => $release->body ?? '',
             ],
         ];
