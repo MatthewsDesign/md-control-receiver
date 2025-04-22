@@ -23,83 +23,92 @@ function md_control_generate_api_key() {
 // Load REST API endpoints
 require_once plugin_dir_path(__FILE__) . 'includes/api/endpoints.php';
 
-// Load admin UI for settings page
-if (is_admin()) {
-    require_once plugin_dir_path(__FILE__) . 'includes/admin/settings-page.php';
-}
+// --- GitHub Updater for MD Control Receiver ---
+add_action('init', function () {
+    if (!is_admin()) return;
 
-// GitHub Updater (uses /releases instead of /releases/latest)
-add_action('admin_init', 'md_control_check_for_plugin_update');
-
-function md_control_check_for_plugin_update() {
-    $current_version = '1.0';
-    $repo_owner = 'MatthewsDesign';
-    $repo_name = 'md-control-receiver';
-    $token = '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'; // Replace with your token
-    $api_url = "https://api.github.com/repos/$repo_owner/$repo_name/releases";
-
-    $response = wp_remote_get($api_url, [
-        'headers' => [
-            'User-Agent' => 'WordPress Plugin Updater',
-            'Authorization' => 'token ' . $token,
-            'Accept' => 'application/vnd.github.v3+json',
-        ]
+    new MD_Control_GitHub_Updater(__FILE__, [
+        'user'  => 'MatthewsDesign',
+        'repo'  => 'md-control-receiver',
+        'token' => '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',
     ]);
+});
 
-    if (is_wp_error($response)) {
-        error_log('GitHub API error: ' . $response->get_error_message());
-        return;
+class MD_Control_GitHub_Updater {
+    private $file, $slug, $user, $repo, $token;
+
+    public function __construct($file, $args) {
+        $this->file = $file;
+        $this->slug = plugin_basename($file);
+        $this->user = $args['user'];
+        $this->repo = $args['repo'];
+        $this->token = $args['token'];
+
+        add_filter('pre_set_site_transient_update_plugins', [$this, 'check_update']);
+        add_filter('plugins_api', [$this, 'plugins_api'], 10, 3);
+        add_filter('upgrader_post_install', [$this, 'after_install'], 10, 3);
     }
 
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
+    private function api_request($url) {
+        $headers = ['User-Agent' => 'WordPress', 'Accept' => 'application/vnd.github.v3+json'];
+        if ($this->token) {
+            $headers['Authorization'] = 'token ' . $this->token;
+        }
 
-    if (!is_array($data) || empty($data[0]['tag_name']) || empty($data[0]['zipball_url'])) {
-        error_log('GitHub API: no valid releases found.');
-        return;
+        $response = wp_remote_get($url, ['headers' => $headers]);
+        if (is_wp_error($response)) return false;
+
+        return json_decode(wp_remote_retrieve_body($response));
     }
 
-    $latest_version = ltrim($data[0]['tag_name'], 'v');
-    $zip_url = $data[0]['zipball_url'];
+    public function check_update($transient) {
+        if (empty($transient->checked)) return $transient;
 
-    if (version_compare($current_version, $latest_version, '<')) {
-        md_control_update_plugin_from_github($zip_url, $token);
-    }
-}
+        $release = $this->api_request("https://api.github.com/repos/{$this->user}/{$this->repo}/releases/latest");
+        if (!$release || empty($release->tag_name)) return $transient;
 
-function md_control_update_plugin_from_github($zip_url, $token) {
-    require_once ABSPATH . 'wp-admin/includes/file.php';
-    require_once ABSPATH . 'wp-admin/includes/plugin.php';
-    require_once ABSPATH . 'wp-admin/includes/misc.php';
-    require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+        $plugin_data = get_plugin_data($this->file);
+        $current = $plugin_data['Version'];
+        $remote = ltrim($release->tag_name, 'v');
 
-    $response = wp_remote_get($zip_url, [
-        'headers' => [
-            'User-Agent' => 'WordPress Plugin Updater',
-            'Authorization' => 'token ' . $token,
-        ]
-    ]);
+        if (version_compare($remote, $current, '>')) {
+            $transient->response[$this->slug] = (object)[
+                'slug'        => dirname($this->slug),
+                'plugin'      => $this->slug,
+                'new_version' => $remote,
+                'package'     => $release->zipball_url,
+                'url'         => $release->html_url,
+            ];
+        }
 
-    if (is_wp_error($response)) {
-        error_log('Plugin download failed: ' . $response->get_error_message());
-        return;
+        return $transient;
     }
 
-    $tmp_file = wp_tempnam('md-control-receiver');
-    if (!$tmp_file) {
-        error_log('Failed to create temp file.');
-        return;
+    public function plugins_api($res, $action, $args) {
+        if ($action !== 'plugin_information' || $args->slug !== dirname($this->slug)) return $res;
+
+        $release = $this->api_request("https://api.github.com/repos/{$this->user}/{$this->repo}/releases/latest");
+        if (!$release) return $res;
+
+        return (object)[
+            'name' => 'MD Control Receiver',
+            'slug' => $this->slug,
+            'version' => ltrim($release->tag_name, 'v'),
+            'author' => 'Matthews Design',
+            'homepage' => $release->html_url,
+            'download_link' => $release->zipball_url,
+            'sections' => ['description' => $release->body ?? ''],
+        ];
     }
 
-    file_put_contents($tmp_file, wp_remote_retrieve_body($response));
+    public function after_install($res, $extra, $result) {
+        global $wp_filesystem;
 
-    $plugin_dir = plugin_dir_path(__FILE__);
-    $result = unzip_file($tmp_file, $plugin_dir);
-    unlink($tmp_file);
+        $slug = dirname($this->slug);
+        $proper_destination = WP_PLUGIN_DIR . '/' . $slug;
+        $wp_filesystem->move($result['destination'], $proper_destination);
+        $result['destination'] = $proper_destination;
 
-    if (is_wp_error($result)) {
-        error_log('MD Control plugin update failed: ' . $result->get_error_message());
-    } else {
-        error_log('MD Control plugin updated successfully to new version.');
+        return $result;
     }
 }
