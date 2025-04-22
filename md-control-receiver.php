@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.1.1
+ * Version: 1.0
  * Author: Matthews Design
  */
 
@@ -28,31 +28,42 @@ if (is_admin()) {
     require_once plugin_dir_path(__FILE__) . 'includes/admin/settings-page.php';
 }
 
+// GitHub Updater (uses /releases instead of /releases/latest)
 add_action('admin_init', 'md_control_check_for_plugin_update');
 
 function md_control_check_for_plugin_update() {
     $current_version = '1.0';
     $repo_owner = 'MatthewsDesign';
     $repo_name = 'md-control-receiver';
-    $token = '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';
-    $api_url = "https://api.github.com/repos/$repo_owner/$repo_name/releases/latest";
+    $token = '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'; // Replace with your token
+    $api_url = "https://api.github.com/repos/$repo_owner/$repo_name/releases";
 
     $response = wp_remote_get($api_url, [
         'headers' => [
             'User-Agent' => 'WordPress Plugin Updater',
             'Authorization' => 'token ' . $token,
+            'Accept' => 'application/vnd.github.v3+json',
         ]
     ]);
 
-    if (is_wp_error($response)) return;
+    if (is_wp_error($response)) {
+        error_log('GitHub API error: ' . $response->get_error_message());
+        return;
+    }
 
     $body = wp_remote_retrieve_body($response);
     $data = json_decode($body, true);
-    if (!isset($data['tag_name'])) return;
 
-    $latest_version = ltrim($data['tag_name'], 'v');
+    if (!is_array($data) || empty($data[0]['tag_name']) || empty($data[0]['zipball_url'])) {
+        error_log('GitHub API: no valid releases found.');
+        return;
+    }
+
+    $latest_version = ltrim($data[0]['tag_name'], 'v');
+    $zip_url = $data[0]['zipball_url'];
+
     if (version_compare($current_version, $latest_version, '<')) {
-        md_control_update_plugin_from_github($data['zipball_url'], $token);
+        md_control_update_plugin_from_github($zip_url, $token);
     }
 }
 
@@ -66,24 +77,29 @@ function md_control_update_plugin_from_github($zip_url, $token) {
         'headers' => [
             'User-Agent' => 'WordPress Plugin Updater',
             'Authorization' => 'token ' . $token,
-        ],
-        'stream' => true,
-        'timeout' => 300,
-        'filename' => WP_TEMP_DIR . '/md-control-receiver.zip',
+        ]
     ]);
 
-    if (is_wp_error($response)) return;
+    if (is_wp_error($response)) {
+        error_log('Plugin download failed: ' . $response->get_error_message());
+        return;
+    }
 
     $tmp_file = wp_tempnam('md-control-receiver');
-    if (!$tmp_file) return;
+    if (!$tmp_file) {
+        error_log('Failed to create temp file.');
+        return;
+    }
 
     file_put_contents($tmp_file, wp_remote_retrieve_body($response));
-    $plugin_dir = plugin_dir_path(__FILE__);
 
+    $plugin_dir = plugin_dir_path(__FILE__);
     $result = unzip_file($tmp_file, $plugin_dir);
     unlink($tmp_file);
 
     if (is_wp_error($result)) {
         error_log('MD Control plugin update failed: ' . $result->get_error_message());
+    } else {
+        error_log('MD Control plugin updated successfully to new version.');
     }
 }
