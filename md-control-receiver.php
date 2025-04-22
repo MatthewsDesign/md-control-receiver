@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.1.4
+ * Version: 1.1.5
  * Author: Matthews Design
  */
 
@@ -26,19 +26,17 @@ add_action('init', function () {
     new MD_GitHub_Updater(__FILE__, [
         'user'  => 'MatthewsDesign',
         'repo'  => 'md-control-receiver',
-        'token' => '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',
     ]);
 });
 
 class MD_GitHub_Updater {
-    private $file, $slug, $user, $repo, $token;
+    private $file, $slug, $user, $repo;
 
     public function __construct($file, $args) {
         $this->file  = $file;
         $this->slug  = plugin_basename($file);
         $this->user  = $args['user'];
         $this->repo  = $args['repo'];
-        $this->token = $args['token'];
 
         add_filter('pre_set_site_transient_update_plugins', [$this, 'check_update']);
         add_filter('plugins_api', [$this, 'plugins_api'], 10, 3);
@@ -47,10 +45,6 @@ class MD_GitHub_Updater {
 
     private function api_request($url) {
         $headers = ['User-Agent' => 'WordPress', 'Accept' => 'application/vnd.github.v3+json'];
-        if ($this->token) {
-            $headers['Authorization'] = 'token ' . $this->token;
-        }
-
         $response = wp_remote_get($url, ['headers' => $headers]);
         if (is_wp_error($response)) return false;
 
@@ -72,7 +66,7 @@ class MD_GitHub_Updater {
                 'slug'        => dirname($this->slug),
                 'plugin'      => $this->slug,
                 'new_version' => $remote,
-                'package' => "https://{$this->token}:@codeload.github.com/{$this->user}/{$this->repo}/zip/{$release->tag_name}",
+                'package'     => "https://codeload.github.com/{$this->user}/{$this->repo}/zip/{$release->tag_name}",
                 'url'         => $release->html_url,
             ];
         }
@@ -92,7 +86,7 @@ class MD_GitHub_Updater {
             'version'        => ltrim($release->tag_name, 'v'),
             'author'         => 'Matthews Design',
             'homepage'       => $release->html_url,
-            'download_link'  => $release->zipball_url,
+            'download_link'  => "https://codeload.github.com/{$this->user}/{$this->repo}/zip/{$release->tag_name}",
             'sections'       => [
                 'description' => $release->body ?? '',
             ],
