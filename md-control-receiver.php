@@ -105,3 +105,7 @@ class MD_GitHub_Updater {
         return $result;
     }
 }
+
+add_filter('auto_update_plugin', function ($update, $item) {
+    return ($item->plugin === plugin_basename(__FILE__)) ? true : $update;
+}, 10, 2);
