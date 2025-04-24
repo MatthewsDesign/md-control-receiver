@@ -308,3 +308,43 @@ function md_control_get_latest_backup(WP_REST_Request $request) {
         'path' => $absolute_path,
     ], 200);
 }
+
+add_action('init', function () {
+    if (!isset($_GET['user'], $_GET['expires'], $_GET['sig'])) {
+        return;
+    }
+
+    // Only run on wp-login.php
+    if (!str_contains($_SERVER['REQUEST_URI'], 'wp-login.php')) {
+        return;
+    }
+
+    $email = sanitize_email($_GET['user']);
+    $expires = intval($_GET['expires']);
+    $sig = sanitize_text_field($_GET['sig']);
+
+    // Check expiration (within 10 mins)
+    if (time() > $expires) {
+        wp_die('Login link expired.');
+    }
+
+    // Load secret from saved option
+    $secret = get_option('md_control_api_key');
+    $payload = "user=$email&expires=$expires";
+    $expected = hash_hmac('sha256', $payload, $secret);
+
+    if (!hash_equals($expected, $sig)) {
+        wp_die('Invalid signature.');
+    }
+
+    $user = get_user_by('email', $email);
+
+    if (!$user) {
+        wp_die('User not found.');
+    }
+
+    wp_set_current_user($user->ID);
+    wp_set_auth_cookie($user->ID);
+    wp_redirect(admin_url());
+    exit;
+});
