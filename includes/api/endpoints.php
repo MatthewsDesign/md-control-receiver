@@ -293,9 +293,9 @@ function md_control_get_updates() {
     $plugin_updates = get_site_transient('update_plugins');
     foreach (get_plugins() as $slug => $plugin) {
         if (str_contains($slug, 'md-control-receiver.php')) {
-            continue; // Skip listing this plugin to prevent self-update
+            continue; // Prevent self-update from showing in UI
         }
-    
+
         $new = $plugin_updates->response[$slug]->new_version ?? null;
         $updates['plugins'][] = [
             'slug' => $slug,
@@ -304,7 +304,7 @@ function md_control_get_updates() {
             'new_version' => $new,
             'update_available' => $new !== null,
         ];
-    }    
+    }
 
     $theme_updates = get_site_transient('update_themes');
     foreach (wp_get_themes() as $slug => $theme) {
@@ -322,47 +322,115 @@ function md_control_get_updates() {
 }
 
 function md_control_update_core() {
+    require_once ABSPATH . 'wp-admin/includes/file.php';
     require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-    $upgrader = new Core_Upgrader();
-    $result = $upgrader->upgrade(false);
+    require_once ABSPATH . 'wp-admin/includes/update.php';
 
-    if (is_wp_error($result)) {
-        return new WP_Error('core_update_failed', $result->get_error_message(), ['status' => 500]);
+    try {
+        $skin = new \Automatic_Upgrader_Skin();
+        $upgrader = new \Core_Upgrader($skin);
+
+        ob_start();
+        $result = $upgrader->upgrade(false);
+        ob_end_clean();
+
+        if (is_wp_error($result)) {
+            return new WP_Error('core_update_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        if ($result === false || $result === null) {
+            return new WP_Error('core_update_failed', 'Core upgrade returned an unexpected result.', ['status' => 500]);
+        }
+
+        return new WP_REST_Response(['status' => 'updated'], 200);
+    } catch (Throwable $e) {
+        return new WP_Error('core_update_exception', $e->getMessage(), ['status' => 500]);
     }
-
-    return new WP_REST_Response(['status' => 'updated'], 200);
 }
 
 function md_control_update_plugin(WP_REST_Request $request) {
     $slug = sanitize_text_field($request->get_param('slug'));
+
     if (!$slug) {
         return new WP_Error('missing_slug', 'Missing plugin slug.', ['status' => 400]);
     }
 
-    require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-    $upgrader = new Plugin_Upgrader();
-    $result = $upgrader->upgrade($slug);
-
-    if (is_wp_error($result)) {
-        return new WP_Error('plugin_update_failed', $result->get_error_message(), ['status' => 500]);
+    if (strpos($slug, 'md-control-receiver.php') !== false) {
+        return new WP_Error('self_update_blocked', 'Cannot update this plugin through itself.', ['status' => 403]);
     }
 
-    return new WP_REST_Response(['status' => 'updated'], 200);
+    require_once ABSPATH . 'wp-admin/includes/file.php';
+    require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+
+    try {
+        $was_active = is_plugin_active($slug);
+
+        $skin = new \Automatic_Upgrader_Skin();
+        $upgrader = new \Plugin_Upgrader($skin);
+
+        ob_start();
+        $result = $upgrader->upgrade($slug);
+        ob_end_clean();
+
+        if (is_wp_error($result)) {
+            return new WP_Error('plugin_update_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        if ($result === false || $result === null) {
+            return new WP_Error('plugin_update_failed', 'Plugin upgrade returned an unexpected result.', ['status' => 500]);
+        }
+
+        if ($was_active && !is_plugin_active($slug)) {
+            $activation = activate_plugin($slug);
+            if (is_wp_error($activation)) {
+                return new WP_Error('plugin_reactivation_failed', $activation->get_error_message(), ['status' => 500]);
+            }
+        }
+
+        return new WP_REST_Response(['status' => 'updated'], 200);
+
+    } catch (Throwable $e) {
+        return new WP_Error('plugin_update_exception', $e->getMessage(), ['status' => 500]);
+    }
 }
 
 function md_control_update_theme(WP_REST_Request $request) {
     $slug = sanitize_text_field($request->get_param('slug'));
+
     if (!$slug) {
         return new WP_Error('missing_slug', 'Missing theme slug.', ['status' => 400]);
     }
 
+    require_once ABSPATH . 'wp-admin/includes/file.php';
     require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-    $upgrader = new Theme_Upgrader();
-    $result = $upgrader->upgrade($slug);
+    require_once ABSPATH . 'wp-includes/theme.php';
 
-    if (is_wp_error($result)) {
-        return new WP_Error('theme_update_failed', $result->get_error_message(), ['status' => 500]);
+    try {
+        $current_theme = wp_get_theme();
+        $was_active = ($current_theme->get_stylesheet() === $slug);
+
+        $skin = new \Automatic_Upgrader_Skin();
+        $upgrader = new \Theme_Upgrader($skin);
+
+        ob_start();
+        $result = $upgrader->upgrade($slug);
+        ob_end_clean();
+
+        if (is_wp_error($result)) {
+            return new WP_Error('theme_update_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        if ($result === false || $result === null) {
+            return new WP_Error('theme_update_failed', 'Theme upgrade returned an unexpected result.', ['status' => 500]);
+        }
+
+        if ($was_active) {
+            switch_theme($slug);
+        }
+
+        return new WP_REST_Response(['status' => 'updated'], 200);
+    } catch (Throwable $e) {
+        return new WP_Error('theme_update_exception', $e->getMessage(), ['status' => 500]);
     }
-
-    return new WP_REST_Response(['status' => 'updated'], 200);
 }
