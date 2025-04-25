@@ -292,6 +292,10 @@ function md_control_get_updates() {
 
     $plugin_updates = get_site_transient('update_plugins');
     foreach (get_plugins() as $slug => $plugin) {
+        if (str_contains($slug, 'md-control-receiver.php')) {
+            continue; // Skip listing this plugin to prevent self-update
+        }
+    
         $new = $plugin_updates->response[$slug]->new_version ?? null;
         $updates['plugins'][] = [
             'slug' => $slug,
@@ -300,7 +304,7 @@ function md_control_get_updates() {
             'new_version' => $new,
             'update_available' => $new !== null,
         ];
-    }
+    }    
 
     $theme_updates = get_site_transient('update_themes');
     foreach (wp_get_themes() as $slug => $theme) {
