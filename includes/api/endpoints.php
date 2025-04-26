@@ -11,6 +11,13 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'md_control_authenticate',
     ]);
 
+    // Update Status Endpoint
+    register_rest_route('md-control/v1', '/update-status', [
+        'methods' => 'GET',
+        'callback' => 'md_control_get_update_status',
+        'permission_callback' => 'md_control_authenticate',
+    ]);
+
     // Users
     register_rest_route('md-control/v1', '/users', [
         'methods' => 'GET',
@@ -60,31 +67,6 @@ add_action('rest_api_init', function () {
             ]
         ]
     ]);
-
-    // Updates
-    register_rest_route('md-control/v1', '/updates', [
-        'methods' => 'GET',
-        'callback' => 'md_control_get_updates',
-        'permission_callback' => 'md_control_authenticate',
-    ]);
-
-    register_rest_route('md-control/v1', '/update/core', [
-        'methods' => 'POST',
-        'callback' => 'md_control_update_core',
-        'permission_callback' => 'md_control_authenticate',
-    ]);
-
-    register_rest_route('md-control/v1', '/update/plugin', [
-        'methods' => 'POST',
-        'callback' => 'md_control_update_plugin',
-        'permission_callback' => 'md_control_authenticate',
-    ]);
-
-    register_rest_route('md-control/v1', '/update/theme', [
-        'methods' => 'POST',
-        'callback' => 'md_control_update_theme',
-        'permission_callback' => 'md_control_authenticate',
-    ]);
 });
 
 // === One-Click Login ===
@@ -110,20 +92,43 @@ add_action('init', function () {
 
     wp_set_current_user($user->ID);
     wp_set_auth_cookie($user->ID);
-    wp_redirect(admin_url());
+
+    $redirect = isset($_GET['redirect_to']) ? esc_url_raw($_GET['redirect_to']) : admin_url();
+    wp_redirect($redirect);
     exit;
 });
 
+
 // === Handlers ===
 
-function md_control_ping() {
+function md_control_ping(WP_REST_Request $request) {
+    $plugin_updates = get_site_transient('update_plugins');
+    $theme_updates = get_site_transient('update_themes');
+    $core_updates = get_site_transient('update_core');
+
+    $plugin_update_count = isset($plugin_updates->response) ? count($plugin_updates->response) : 0;
+    $theme_update_count = isset($theme_updates->response) ? count($theme_updates->response) : 0;
+    $core_update_count = 0;
+    if (!empty($core_updates->updates)) {
+        foreach ($core_updates->updates as $update) {
+            if (isset($update->response) && $update->response === 'upgrade') {
+                $core_update_count++;
+            }
+        }
+    }
+
     return [
-        'status' => 'ok',
         'site_name' => get_bloginfo('name'),
-        'wp_version' => get_bloginfo('version'),
-        'plugin_version' => '1.0',
+        'url' => home_url(),
+        'updates' => [
+            'plugins' => $plugin_update_count,
+            'themes' => $theme_update_count,
+            'core' => $core_update_count,
+            'total' => $plugin_update_count + $theme_update_count + $core_update_count,
+        ],
     ];
 }
+
 
 function md_control_create_user(WP_REST_Request $request) {
     $username = sanitize_user($request->get_param('username'));
@@ -268,169 +273,28 @@ function md_control_download_backup(WP_REST_Request $request) {
     exit;
 }
 
-function md_control_get_updates() {
+function md_control_get_update_status() {
     require_once ABSPATH . 'wp-admin/includes/update.php';
     wp_version_check();
     wp_update_plugins();
     wp_update_themes();
 
-    $updates = [
-        'core' => [
-            'version' => get_bloginfo('version'),
-            'update_available' => false,
-            'new_version' => null,
-        ],
-        'plugins' => [],
-        'themes'  => [],
-    ];
+    $plugins = get_site_transient('update_plugins');
+    $themes = get_site_transient('update_themes');
+    $core = get_site_transient('update_core');
 
-    $core_updates = get_site_transient('update_core');
-    if (!empty($core_updates->updates[0]->response) && $core_updates->updates[0]->response === 'upgrade') {
-        $updates['core']['update_available'] = true;
-        $updates['core']['new_version'] = $core_updates->updates[0]->current;
+    $plugin_updates = !empty($plugins->response) ? count($plugins->response) : 0;
+    $theme_updates = !empty($themes->response) ? count($themes->response) : 0;
+    $core_updates = 0;
+
+    if (!empty($core->updates) && isset($core->updates[0]->response) && $core->updates[0]->response === 'upgrade') {
+        $core_updates = 1;
     }
 
-    $plugin_updates = get_site_transient('update_plugins');
-    foreach (get_plugins() as $slug => $plugin) {
-        if (str_contains($slug, 'md-control-receiver.php')) {
-            continue; // Prevent self-update from showing in UI
-        }
-
-        $new = $plugin_updates->response[$slug]->new_version ?? null;
-        $updates['plugins'][] = [
-            'slug' => $slug,
-            'name' => $plugin['Name'],
-            'current_version' => $plugin['Version'],
-            'new_version' => $new,
-            'update_available' => $new !== null,
-        ];
-    }
-
-    $theme_updates = get_site_transient('update_themes');
-    foreach (wp_get_themes() as $slug => $theme) {
-        $new = $theme_updates->response[$slug]['new_version'] ?? null;
-        $updates['themes'][] = [
-            'slug' => $slug,
-            'name' => $theme->get('Name'),
-            'current_version' => $theme->get('Version'),
-            'new_version' => $new,
-            'update_available' => $new !== null,
-        ];
-    }
-
-    return rest_ensure_response($updates);
-}
-
-function md_control_update_core() {
-    require_once ABSPATH . 'wp-admin/includes/file.php';
-    require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-    require_once ABSPATH . 'wp-admin/includes/update.php';
-
-    try {
-        $skin = new \Automatic_Upgrader_Skin();
-        $upgrader = new \Core_Upgrader($skin);
-
-        ob_start();
-        $result = $upgrader->upgrade(false);
-        ob_end_clean();
-
-        if (is_wp_error($result)) {
-            return new WP_Error('core_update_failed', $result->get_error_message(), ['status' => 500]);
-        }
-
-        if ($result === false || $result === null) {
-            return new WP_Error('core_update_failed', 'Core upgrade returned an unexpected result.', ['status' => 500]);
-        }
-
-        return new WP_REST_Response(['status' => 'updated'], 200);
-    } catch (Throwable $e) {
-        return new WP_Error('core_update_exception', $e->getMessage(), ['status' => 500]);
-    }
-}
-
-function md_control_update_plugin(WP_REST_Request $request) {
-    $slug = sanitize_text_field($request->get_param('slug'));
-
-    if (!$slug) {
-        return new WP_Error('missing_slug', 'Missing plugin slug.', ['status' => 400]);
-    }
-
-    if (strpos($slug, 'md-control-receiver.php') !== false) {
-        return new WP_Error('self_update_blocked', 'Cannot update this plugin through itself.', ['status' => 403]);
-    }
-
-    require_once ABSPATH . 'wp-admin/includes/file.php';
-    require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-    require_once ABSPATH . 'wp-admin/includes/plugin.php';
-
-    try {
-        $was_active = is_plugin_active($slug);
-
-        $skin = new \Automatic_Upgrader_Skin();
-        $upgrader = new \Plugin_Upgrader($skin);
-
-        ob_start();
-        $result = $upgrader->upgrade($slug);
-        ob_end_clean();
-
-        if (is_wp_error($result)) {
-            return new WP_Error('plugin_update_failed', $result->get_error_message(), ['status' => 500]);
-        }
-
-        if ($result === false || $result === null) {
-            return new WP_Error('plugin_update_failed', 'Plugin upgrade returned an unexpected result.', ['status' => 500]);
-        }
-
-        if ($was_active && !is_plugin_active($slug)) {
-            $activation = activate_plugin($slug);
-            if (is_wp_error($activation)) {
-                return new WP_Error('plugin_reactivation_failed', $activation->get_error_message(), ['status' => 500]);
-            }
-        }
-
-        return new WP_REST_Response(['status' => 'updated'], 200);
-
-    } catch (Throwable $e) {
-        return new WP_Error('plugin_update_exception', $e->getMessage(), ['status' => 500]);
-    }
-}
-
-function md_control_update_theme(WP_REST_Request $request) {
-    $slug = sanitize_text_field($request->get_param('slug'));
-
-    if (!$slug) {
-        return new WP_Error('missing_slug', 'Missing theme slug.', ['status' => 400]);
-    }
-
-    require_once ABSPATH . 'wp-admin/includes/file.php';
-    require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-    require_once ABSPATH . 'wp-includes/theme.php';
-
-    try {
-        $current_theme = wp_get_theme();
-        $was_active = ($current_theme->get_stylesheet() === $slug);
-
-        $skin = new \Automatic_Upgrader_Skin();
-        $upgrader = new \Theme_Upgrader($skin);
-
-        ob_start();
-        $result = $upgrader->upgrade($slug);
-        ob_end_clean();
-
-        if (is_wp_error($result)) {
-            return new WP_Error('theme_update_failed', $result->get_error_message(), ['status' => 500]);
-        }
-
-        if ($result === false || $result === null) {
-            return new WP_Error('theme_update_failed', 'Theme upgrade returned an unexpected result.', ['status' => 500]);
-        }
-
-        if ($was_active) {
-            switch_theme($slug);
-        }
-
-        return new WP_REST_Response(['status' => 'updated'], 200);
-    } catch (Throwable $e) {
-        return new WP_Error('theme_update_exception', $e->getMessage(), ['status' => 500]);
-    }
+    return rest_ensure_response([
+        'plugins' => $plugin_updates,
+        'themes' => $theme_updates,
+        'core' => $core_updates,
+        'total' => $plugin_updates + $theme_updates + $core_updates,
+    ]);
 }

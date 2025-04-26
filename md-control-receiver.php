@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Matthews Design
  */
 
