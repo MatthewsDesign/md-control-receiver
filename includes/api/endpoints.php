@@ -129,7 +129,6 @@ function md_control_ping(WP_REST_Request $request) {
     ];
 }
 
-
 function md_control_create_user(WP_REST_Request $request) {
     $username = sanitize_user($request->get_param('username'));
     $email = sanitize_email($request->get_param('email'));
