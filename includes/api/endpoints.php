@@ -99,7 +99,7 @@ add_action('init', function () {
 });
 
 
-// === Handlers ===
+// === Handlers === //
 
 function md_control_ping(WP_REST_Request $request) {
     $plugin_updates = get_site_transient('update_plugins');
