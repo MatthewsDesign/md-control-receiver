@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.2.3
+ * Version: 1.2.5
  * Author: Matthews Design
  * Author URI: https://matthewsdesign.co/
  */
@@ -94,7 +94,7 @@ class MD_GitHub_Updater {
             ],
         ];
     }
-    
+
     public function after_install($res, $extra, $result) {
         global $wp_filesystem;
     
