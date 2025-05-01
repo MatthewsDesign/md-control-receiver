@@ -2,8 +2,9 @@
 /**
  * Plugin Name: MD Control Receiver
  * Description: Remote management receiver for MD Control.
- * Version: 1.2.2
+ * Version: 1.2.3
  * Author: Matthews Design
+ * Author URI: https://matthewsdesign.co/
  */
 
 defined('ABSPATH') || exit;
@@ -109,3 +110,26 @@ class MD_GitHub_Updater {
 add_filter('auto_update_plugin', function ($update, $item) {
     return ($item->plugin === plugin_basename(__FILE__)) ? true : $update;
 }, 10, 2);
+
+register_activation_hook(__FILE__, 'md_control_activation_redirect');
+
+function md_control_activation_redirect() {
+    add_option('md_control_do_activation_redirect', true);
+}
+
+add_action('admin_init', function () {
+    if (get_option('md_control_do_activation_redirect')) {
+        delete_option('md_control_do_activation_redirect');
+
+        if (!isset($_GET['activate-multi'])) {
+            wp_safe_redirect(admin_url('options-general.php?page=md-control-settings'));
+            exit;
+        }
+    }
+});
+
+add_filter('plugin_action_links_md-control-receiver/md-control-receiver.php', function ($links) {
+    $settings_link = '<a href="' . esc_url(admin_url('options-general.php?page=md-control-settings')) . '">Settings</a>';
+    array_unshift($links, $settings_link);
+    return $links;
+});
