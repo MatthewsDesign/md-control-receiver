@@ -94,18 +94,26 @@ class MD_GitHub_Updater {
             ],
         ];
     }
-
+    
     public function after_install($res, $extra, $result) {
         global $wp_filesystem;
-
-        $slug = dirname($this->slug);
-        $destination = WP_PLUGIN_DIR . '/' . $slug;
+    
+        // Rename whatever GitHub gives us to md-control-receiver
+        $plugin_folder = 'md-control-receiver';
+        $destination = WP_PLUGIN_DIR . '/' . $plugin_folder;
+    
+        // Remove old plugin folder if it exists (cleanly overwrite)
+        if ($wp_filesystem->exists($destination)) {
+            $wp_filesystem->delete($destination, true);
+        }
+    
+        // Move and rename the extracted plugin folder
         $wp_filesystem->move($result['destination'], $destination);
         $result['destination'] = $destination;
-
+    
         return $result;
     }
-}
+    
 
 add_filter('auto_update_plugin', function ($update, $item) {
     return ($item->plugin === plugin_basename(__FILE__)) ? true : $update;
